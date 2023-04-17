@@ -1,79 +1,15 @@
+const path = require("path");
+
 const Bootcamp = require("../models/Bootcamp");
 const ErrorResponse = require("../utils/errorResponse");
 const asyncHandler = require("../middleware/async");
 const geocoder = require("../utils/geoCoder");
 
+const advancedResults = require("../middleware/advancedResults");
+
 exports.getBootCamps = asyncHandler(async (req, res, next) => {
-  let query;
-
-  //copy query params
-  const reqQuery = { ...req.query };
-
-  //exclude feilds
-  const removeFeilds = ["select", "sort", "page", "limit"];
-
-  //loop over and delete the feilds from the reqQuery
-  removeFeilds.forEach((param) => delete reqQuery[param]);
-
-  //create queryString
-  let queryString = JSON.stringify(reqQuery);
-
-  //Create Operater
-  queryString = queryString.replace(
-    /\b(gt|gte|lt|lte|in|eq|ne|nin)\b/g,
-    (match) => `$${match}`
-  );
-
-  // Finding resorce
-  query = Bootcamp.find(JSON.parse(queryString));
-
-  //select feilds
-  if (req.query.select) {
-    const feilds = req.query.select.split(",").join(" ");
-    query = query.select(feilds);
-  }
-
-  //sort feilds
-
-  if (req.query.sort) {
-    const sortBy = req.query.sort.split(",").join(" ");
-    query = query.sort(sortBy);
-  } else {
-    query = query.sort("-createdAt");
-  }
-
-  //pagination logic
-
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 25;
-  const startIndex = (page - 1) * limit;
-  const endIndex = page * limit;
-  const total = await Bootcamp.countDocuments();
-
-  query = query.skip(startIndex).limit(limit);
-
-  //exicute query
-  const bootcamps = await query;
-
-  //pagination result
-
-  const pagination = {};
-
-  if (endIndex < total) {
-    pagination.next = { page: page + 1, limit };
-  }
-
-  if (startIndex > 0) {
-    pagination.prev = { page: page - 1, limit };
-  }
-
   //send response
-  res.status(200).json({
-    success: true,
-    count: bootcamps.length,
-    pagination,
-    data: bootcamps,
-  });
+  res.status(200).json(res.advancedResults);
 });
 
 exports.getBootCampsWithInRadius = asyncHandler(async (req, res, next) => {
@@ -134,12 +70,72 @@ exports.updateBootCamp = asyncHandler(async (req, res, next) => {
 });
 
 exports.deleteBootCamp = asyncHandler(async (req, res, next) => {
-  const bootcamp = await Bootcamp.findByIdAndDelete(req.params.id);
+  const bootcamp = await Bootcamp.findById(req.params.id);
   if (!bootcamp) {
     return next(
       new ErrorResponse(`Bootcamp not found with id : ${req.params.id}`, 404)
     );
   }
 
+  bootcamp.deleteOne();
   res.status(200).json({ success: true, data: {} });
+});
+
+// @desc      Upload photo for bootcamp
+// @route     PUT /api/v1/bootcamps/:id/photo
+// @access    Private
+exports.bootcampPhotoUpload = asyncHandler(async (req, res, next) => {
+  let bootcamp = await Bootcamp.findById(req.params.id);
+
+  if (!bootcamp) {
+    return next(
+      new ErrorResponse(`No bootcamp found with id ${req.params.id}`, 404)
+    );
+  }
+
+  if (!req.files) {
+    return next(new ErrorResponse("Please upload a photo!", 404));
+  }
+
+  const file = req.files.file;
+
+  //make sure the file is a photo
+  if (!file.mimetype.startsWith("image")) {
+    return next(new ErrorResponse("Please upload a image file!", 404));
+  }
+
+  //check file size
+  if (file.size > process.env.MAX_UPLOAD_FILE_SIZE) {
+    return next(
+      new ErrorResponse(
+        `Please upload an image lessthan ${process.env.MAX_UPLOAD_FILE_SIZE}`,
+        404
+      )
+    );
+  }
+
+  //creating coustom name
+  file.name = `photo_${bootcamp._id}${path.parse(file.name).ext}`;
+
+  //moving the photo to public folder
+  file.mv(`${process.env.FILE_UPLOAD_PATH}/${file.name}`, async (error) => {
+    if (error) {
+      console.log(error);
+      return next(
+        new ErrorResponse(
+          "problem with file upload!, please try again later",
+          400
+        )
+      );
+    }
+  });
+
+  //updating the photo feild in Bootcamp
+
+  await Bootcamp.findByIdAndUpdate(req.params.id, { photo: file.name });
+
+  console.log(file.name);
+
+  //course.findOneAndDelete();
+  res.status(200).json({ success: true, data: file.name });
 });
