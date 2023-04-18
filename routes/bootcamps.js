@@ -13,6 +13,8 @@ const {
   bootcampPhotoUpload,
 } = require("../controllers/bootcamp");
 
+const { protect, authorize } = require("../middleware/auth");
+
 const courseRouter = require("./courses");
 
 const router = express.Router();
@@ -25,14 +27,16 @@ router.route("/radius/:zipcode/:distance").get(getBootCampsWithInRadius);
 router
   .route("/")
   .get(advancedResults(Bootcamp, "courses"), getBootCamps)
-  .post(createBootCamp);
+  .post(protect, authorize("publisher", "admin"), createBootCamp);
 
 router
   .route("/:id")
   .get(getBootCamp)
-  .put(updateBootCamp)
-  .delete(deleteBootCamp);
+  .put(protect, authorize("publisher", "admin"), updateBootCamp)
+  .delete(protect, authorize("publisher", "admin"), deleteBootCamp);
 
-router.route("/:id/photo").put(bootcampPhotoUpload);
+router
+  .route("/:id/photo")
+  .put(protect, authorize("publisher", "admin"), bootcampPhotoUpload);
 
 module.exports = router;
